@@ -1,0 +1,5 @@
+dados/
+*.csv
+venv/
+notebooks/
+.ipynb_checkpoints/
