@@ -1,5 +1,9 @@
-dados/
+# Ignorar a pasta de dados e arquivos CSV pesados
+Dados/
 *.csv
 venv/
-notebooks/
-.ipynb_checkpoints/
+
+# Ignorar arquivos temporários do Python e Spark
+__pycache__/
+*.class
+.ipynb_checkpoints
