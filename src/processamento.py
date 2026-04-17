@@ -4,28 +4,30 @@
 #=========================================================
 
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, regexp_replace, avg, sum, desc, count
+from pyspark.sql.functions import col, regexp_replace, sum, avg, count, desc, round, substring 
+import matplotlib.pyplot as plt
 import unicodedata
 import re
-
 #=========================================================
 # CONSTRUINDO O AMBIENTE DE BIGDATA
 #=========================================================
 
 spark = SparkSession.builder\
-.appName("Bolsa familia")\
-.config("spark.driver.memory", "8g")\
-.config("spark.executor.memory", "8g")\
+.appName("Bolsa Familia")\
+.config("spark.driver.memory", "8g") \
+.config("spark.executor.memory", "8g") \
 .config("spark.sql.shuffle.partitions", "50")\
 .getOrCreate()
 
 #criando o DataFrame
-df = spark.read \
-    .option("header", "true") \
-    .option("sep", ";")\
-    .option("encoding", "ISO-8859-1") \
-    .option("inferSchema", "true") \
-    .csv("dados/pagamentos.csv")
+caminho_csv ="dados/pagamentos.csv"
+
+df = spark.read\
+.option ("header", True)\
+.option ("inferSchema", True)\
+.option ("sep", ";")\
+.option ("encoding","ISO-8859-1")\
+.csv(caminho_csv)
 
 #lendo as cinco primeiras linha do data Frame
 df.show(5)
@@ -54,21 +56,23 @@ df.printSchema()
 #=========================================================
 
 
-colunas_padrao = {
-    "MÊS COMPETÊNCIA": "mes_competencia",
-    "MÊS REFERÊNCIA": "mes_referencia",
-    "UF": "uf",
-    "CÓDIGO MUNICÍPIO SIAFI": "codigo_municipio",
-    "NOME MUNICÍPIO": "nome_municipio",
-    "CPF FAVORECIDO": "cpf_favorecido",
-    "NIS FAVORECIDO": "nis_favorecido",
-    "NOME FAVORECIDO": "nome_beneficiario",
-    "VALOR PARCELA": "valor_parcela"
-}
 df_tratado = df
 
+colunas_padrao = {
+    "MÊS COMPETÊNCIA": "data_competencia",
+    "MÊS REFERÊNCIA": "data_referencia",
+    "CÓDIGO MUNICÍPIO SIAFI": "codigo_municipio",
+    "UF": "uf",
+    "NOME MUNICÍPIO": "nome_municipio",
+    "CPF FAVORECIDO": "cpf_favorecido",
+    "NIS FAVORECIDO" : "nis_favorecido",
+    "NOME FAVORECIDO": "nome_favorecido",
+    "VALOR PARCELA": "valor_parcela"
+}
+
 for antiga, nova in colunas_padrao.items():
-    df_tratado = df_tratado.withColumnRenamed(antiga , nova)
+    df_tratado = df_tratado.withColumnRenamed(antiga,nova)
+
 
 df_tratado.show(5)
 
@@ -101,26 +105,20 @@ df_tratado.show(5)
 
 df_tratado = (
     df_tratado
-    # remove valores nulos
     .dropna()
-    
-    # #RENOMEIA A COLUNA
-    # .withColumnRenamed(
-    #     "VALOR PARCELA" , "VALOR"
-    # )
-    # troca vírgula por ponto
     .withColumn(
-        "valor_parcela",
-        regexp_replace(col("valor_parcela"), ",", ".")
+        "valor_parcela", 
+        regexp_replace(col("valor_parcela"), ",", ".").cast("decimal(10,2)")
     )
-    
-    # converte para DECIMAL
     .withColumn(
-        "valor_parcela",
-        col("valor_parcela").cast("decimal(10,2)")
+        "ano_competencia", 
+        substring(col("data_competencia"), 1, 4)
+    )
+    .withColumn(
+        "mês_competencia", 
+        substring(col("data_competencia"), 5, 2)
     )
 )
-
 df_tratado.show(2)
 
 #=========================================================
@@ -129,74 +127,52 @@ df_tratado.show(2)
 
 
 df_tratado.agg(
-    sum("valor_parcela").alias("total_pago"),
-    avg("valor_parcela").alias("media_pagamento")
-).show(5)
+    round(sum("valor_parcela"), 2).alias("total_pago"),
+    round(avg("valor_parcela"), 2).alias("media_pagamento")
+).show()
 
 #=========================================================
 # ANÁLISE DOS DADOS DE PAGAMENTO POR ESTADO
 #=========================================================
 
 
-df_tratado.groupBy("uf") \
-    .agg(sum("valor_parcela").alias("total_pago")) \
-    .orderBy("total_pago", ascending=False) \
+df_tratado.groupBy("uf")\
+    .agg(sum("valor_parcela").alias("total_pago"))\
+    .orderBy("total_pago" , ascending=False)\
     .show(5)
-
 
 # 1. Agrupando por CPF e Nome para evitar nomes duplicados de pessoas diferentes
 # 2. Somando o valor total e contando quantas parcelas foram recebidas
-ranking_favorecidos = df_tratado.groupBy("cpf_favorecido", "nome_beneficiario") \
+
+ranking_favorecido = df_tratado.groupBy("cpf_favorecido" , "nome_favorecido")\
     .agg(
         sum("valor_parcela").alias("valor_total_acumulado"),
         count("valor_parcela").alias("quantidade_parcelas")
-    ) \
+    )\
     .orderBy(desc("valor_total_acumulado"))
 
 # Exibindo os 10 maiores favorecidos na análise
-print("Ranking dos 10 Beneficiários com maiores valores acumulados:")
-ranking_favorecidos.show(10, truncate=False)
+print("Rankink dos 10 primeiros com valores acumulados")
+ranking_favorecido.show(5, truncate=False)
 
 # Comparação: Média do ranking vs Média Geral
 media_geral = df_tratado.agg(avg("valor_parcela")).collect()[0][0]
-print(f"Para fins de comparação, a média geral de cada parcela é: R$ {media_geral:.2f}")
-
+print(f"Para fins de comparação, media geral de cada parcela e R$ {media_geral:.2f}")
 
 
 df_tratado.show(5)
 df_tratado.printSchema()
 
-import matplotlib.pyplot as plt
-from pyspark.sql.functions import sum
-from leitura_dados import ler_dados
-from tratamento_dados import tratar_dados
+df_uf = df_tratado.groupBy("uf") \
+    .agg(sum("valor_parcela").alias("total_pago")) \
+    .orderBy("total_pago", ascending=False) \
+    .limit(10) \
+    .toPandas()
 
-CAMINHO_CSV = "dados/pagamentos.csv"
-
-# 1. Leitura
-df = ler_dados(CAMINHO_CSV)
-
-# 2. Tratamento
-df_tratado = tratar_dados(df)
-
-# 3. Agregação (Spark)
-df_uf = (
-    df_tratado\
-        .groupBy("UF")\
-        .agg(sum("valor").alias("total_pago"))\
-        .orderBy("total_pago", ascending=False)\
-        .limit(10)
-)
-
-df_uf.show()
-
-df_uf = df_uf.toPandas()
-
-
-# 4. Gráfico (Matplotlib)
-plt.figure(figsize=(10, 6))
-plt.bar(df_uf["UF"], df_uf["total_pago"])
+# Gráfico
+plt.figure()
+plt.bar(df_uf["uf"], df_uf["total_pago"])
 plt.title("Top 10 UFs - Total Pago Bolsa Família")
 plt.xlabel("UF")
-plt.ylabel("Total Pago (R$)")
+plt.ylabel("Total Pago")
 plt.show()
