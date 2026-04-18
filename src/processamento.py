@@ -115,7 +115,7 @@ df_tratado = (
         substring(col("data_competencia"), 1, 4)
     )
     .withColumn(
-        "mês_competencia", 
+        "mes_competencia", 
         substring(col("data_competencia"), 5, 2)
     )
 )
